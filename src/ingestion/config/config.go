@@ -5,30 +5,24 @@ import (
 )
 
 type Config struct {
-	Kafka         KafkaConfig
+	Redis         RedisConfig
 	EnableTraces  bool
 	EnableMetrics bool
 	EnableLogs    bool
 }
 
-// TODO: message queue is currently Kafka (from hermes-tracing); switch to lightweight Redis pub/sub?
-
-type KafkaConfig struct {
-	Broker string // comma-separated list of broker addresses
-	LogsTopic	 string
-	MetricsTopic string
-	TracesTopic string
-	GroupID string
+type RedisConfig struct {
+	Addr          string
+	TracesStream  string
+	MetricsStream string
 }
 
 func LoadConfig() *Config {
 	return &Config{
-		Kafka: KafkaConfig{
-			Broker:       getEnv("KAFKA_BROKERS", "localhost:29092"),
-			LogsTopic:    getEnv("KAFKA_LOGS_TOPIC", "logs"),
-			MetricsTopic: getEnv("KAFKA_METRICS_TOPIC", "metrics"),
-			TracesTopic:  getEnv("KAFKA_TRACES_TOPIC", "traces"),
-			GroupID:      getEnv("KAFKA_GROUP_ID", "analytics-consumer-group"),
+		Redis: RedisConfig{
+			Addr:          getEnv("REDIS_ADDR", "localhost:6379"),
+			TracesStream:  getEnv("REDIS_TRACES_STREAM", "traces"),
+			MetricsStream: getEnv("REDIS_METRICS_STREAM", "metrics"),
 		},
 	}
 }

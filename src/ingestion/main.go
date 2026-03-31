@@ -3,12 +3,11 @@ package main
 import (
 	"log"
 	"net"
-	"github.com/Jared-Velasquez/tracerca-prod/ingestion/handlers"
-	"github.com/Jared-Velasquez/tracerca-prod/ingestion/config"
 
+	"github.com/Jared-Velasquez/tracerca-prod/ingestion/config"
+	"github.com/Jared-Velasquez/tracerca-prod/ingestion/handlers"
 	"google.golang.org/grpc"
 	_ "google.golang.org/grpc/encoding/gzip" // Register gzip compressor since telemetry is compressed by the OTel collector
-	// otelcollogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	otelcolmetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	otelcoltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 )
@@ -16,19 +15,23 @@ import (
 func main() {
 	cfg := config.LoadConfig()
 
+	redisClient, err := handlers.NewRedisClient(cfg.Redis.Addr)
+	if err != nil {
+		log.Fatalf("failed to connect to Redis: %v", err)
+	}
+
 	listener, err := net.Listen("tcp", ":4317")
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	// Create a new gRPC server and connect OTLP services
 	grpcServer := grpc.NewServer()
 
-	traceServer := handlers.NewTraceServer(cfg)
+	traceServer := handlers.NewTraceServer(cfg, redisClient)
 	otelcoltrace.RegisterTraceServiceServer(grpcServer, traceServer)
 	log.Println("Traces endpoint enabled")
 
-	metricsServer := handlers.NewMetricsServer(cfg)
+	metricsServer := handlers.NewMetricsServer(cfg, redisClient)
 	otelcolmetrics.RegisterMetricsServiceServer(grpcServer, metricsServer)
 	log.Println("Metrics endpoint enabled")
 

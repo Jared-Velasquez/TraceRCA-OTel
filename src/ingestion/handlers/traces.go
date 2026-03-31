@@ -1,10 +1,10 @@
 package handlers
 
 import (
-	"log"
 	"context"
-	"github.com/Jared-Velasquez/tracerca-prod/ingestion/config"
+	"log"
 
+	"github.com/Jared-Velasquez/tracerca-prod/ingestion/config"
 	otelcoltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -12,32 +12,27 @@ import (
 type TraceServer struct {
 	otelcoltrace.UnimplementedTraceServiceServer
 	config *config.Config
+	redis  *RedisClient
 }
 
 func (s *TraceServer) Export(ctx context.Context, req *otelcoltrace.ExportTraceServiceRequest) (*otelcoltrace.ExportTraceServiceResponse, error) {
-
-	// Use protobuf serialization to marshal the request
 	data, err := proto.Marshal(req)
 	if err != nil {
 		log.Printf("Failed to marshal trace request: %v", err)
 		return nil, err
 	}
 
-	// TODO: Should I use dependency injection for producer?
-	producer := NewProducer(s.config.Kafka.Broker, s.config.Kafka.TracesTopic)
-	if err := producer.Send(data); err != nil {
-		log.Printf("Failed to send trace data to Kafka: %v", err)
+	if err := s.redis.XAdd(ctx, s.config.Redis.TracesStream, data); err != nil {
+		log.Printf("Failed to add trace to Redis stream: %v", err)
 		return nil, err
 	}
-
-
-	// 4. Return successful response to client
 
 	return &otelcoltrace.ExportTraceServiceResponse{}, nil
 }
 
-func NewTraceServer(config *config.Config) *TraceServer {
+func NewTraceServer(config *config.Config, redis *RedisClient) *TraceServer {
 	return &TraceServer{
 		config: config,
+		redis:  redis,
 	}
 }

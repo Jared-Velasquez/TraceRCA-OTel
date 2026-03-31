@@ -1,0 +1,19 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  ingest:
+    build:
+      context: src/ingestion
+      dockerfile: Dockerfile
+    depends_on:
+      - redis
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      REDIS_ADDR: redis:6379
+    restart: unless-stopped
