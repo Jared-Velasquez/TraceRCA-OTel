@@ -6,7 +6,7 @@ import (
 
 	"github.com/Jared-Velasquez/tracerca-prod/ingestion/config"
 	otelcoltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
-	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type TraceServer struct {
@@ -16,9 +16,9 @@ type TraceServer struct {
 }
 
 func (s *TraceServer) Export(ctx context.Context, req *otelcoltrace.ExportTraceServiceRequest) (*otelcoltrace.ExportTraceServiceResponse, error) {
-	data, err := proto.Marshal(req)
+	data, err := protojson.Marshal(req)
 	if err != nil {
-		log.Printf("Failed to marshal trace request: %v", err)
+		log.Printf("Failed to serialize trace request: %v", err)
 		return nil, err
 	}
 

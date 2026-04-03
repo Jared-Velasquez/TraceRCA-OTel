@@ -6,7 +6,7 @@ import (
 
 	"github.com/Jared-Velasquez/tracerca-prod/ingestion/config"
 	otelcolmetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
-	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type MetricsServer struct {
@@ -16,9 +16,9 @@ type MetricsServer struct {
 }
 
 func (s *MetricsServer) Export(ctx context.Context, req *otelcolmetrics.ExportMetricsServiceRequest) (*otelcolmetrics.ExportMetricsServiceResponse, error) {
-	data, err := proto.Marshal(req)
+	data, err := protojson.Marshal(req)
 	if err != nil {
-		log.Printf("Failed to marshal metrics request: %v", err)
+		log.Printf("Failed to serialize metrics request: %v", err)
 		return nil, err
 	}
 
