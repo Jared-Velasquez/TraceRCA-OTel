@@ -2,8 +2,8 @@
 
 from collections import defaultdict
 
-from src.tracerca.algorithm.baseline import BaselineModel
-from src.tracerca.models.trace import Invocation, ServicePair
+from tracerca.algorithm.baseline import BaselineModel
+from tracerca.models.trace import Invocation, ServicePair
 from tracerca.algorithm.feature_selection.strategy import FeatureSelectionStrategy
 
 """
