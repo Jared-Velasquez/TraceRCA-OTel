@@ -97,9 +97,30 @@ def list_pkl_dir(pkl_dir: str | Path) -> Path:
 
 
 def run_invo_encoding(pkl_dir: Path, invo_path: Path) -> None:
-    """Subprocess: vendor/TraceRCA-CD/run_invo_encoding.py."""
+    """Subprocess: vendor/TraceRCA-CD/run_invo_encoding.py.
+
+    The vendor script's `-i` actually expects a single .pkl file (the
+    `default="*.pkl"` is misleading — the script does `open(input_file)` on
+    whatever is passed). Mode-A baseline fetch writes one pkl per RE2TT
+    service into pkl_dir; combine them into a single _combined.pkl since
+    schema-1a is just list[dict] and concatenation preserves it.
+    """
+    import pickle
     script = VENDOR_DIR / "run_invo_encoding.py"
-    cmd = [sys.executable, str(script), "-i", str(pkl_dir), "-o", str(invo_path)]
+    pkls = sorted(p for p in pkl_dir.glob("*.pkl") if p.name != "_combined.pkl")
+    if not pkls:
+        raise click.ClickException(f"no *.pkl files in {pkl_dir}")
+    if len(pkls) == 1:
+        input_pkl = pkls[0]
+    else:
+        combined: list[Any] = []
+        for p in pkls:
+            with p.open("rb") as f:
+                combined.extend(pickle.load(f))
+        input_pkl = pkl_dir / "_combined.pkl"
+        with input_pkl.open("wb") as f:
+            pickle.dump(combined, f)
+    cmd = [sys.executable, str(script), "-i", str(input_pkl), "-o", str(invo_path)]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise click.ClickException(
@@ -107,16 +128,30 @@ def run_invo_encoding(pkl_dir: Path, invo_path: Path) -> None:
         )
 
 
-def run_prepare_model(invo_path: Path, out_path: Path) -> None:
-    """Subprocess: vendor/TraceRCA-CD/run_anomaly_detection_prepare_model.py.
+def run_trace_encoding(combined_pkl: Path, trace_npz: Path) -> None:
+    """Subprocess: vendor/TraceRCA-CD/run_trace_encoding.py.
 
-    `-t` shares the invo path (matches TraceRCA-CD Makefile, see §3.4).
+    Produces the trace-level .npz (np.savez archive with keys data/labels/
+    masks/trace_ids) that the prepare_model script's `-t` flag reads via
+    np.load. Without this, prepare_model's global baseline path errors with
+    "allow_pickle=False" because it tries to np.load a pickle.
     """
+    script = VENDOR_DIR / "run_trace_encoding.py"
+    cmd = [sys.executable, str(script), "-i", str(combined_pkl), "-o", str(trace_npz)]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise click.ClickException(
+            f"run_trace_encoding.py failed (rc={result.returncode}): {result.stderr}"
+        )
+
+
+def run_prepare_model(invo_path: Path, trace_npz: Path, out_path: Path) -> None:
+    """Subprocess: vendor/TraceRCA-CD/run_anomaly_detection_prepare_model.py."""
     script = VENDOR_DIR / "run_anomaly_detection_prepare_model.py"
     cmd = [
         sys.executable, str(script),
         "-i", str(invo_path),
-        "-t", str(invo_path),
+        "-t", str(trace_npz),
         "-o", str(out_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -178,7 +213,17 @@ def train(
 
     invo_path = out.with_suffix(".invo.pkl")
     run_invo_encoding(pkl_dir, invo_path)
-    run_prepare_model(invo_path, out)
+    # Locate the _combined.pkl that run_invo_encoding produced as a side-effect
+    # (or the only pkl if just one service). prepare_model's `-t` needs the
+    # trace-encoded .npz of the same baseline data.
+    combined_pkl = pkl_dir / "_combined.pkl"
+    if not combined_pkl.exists():
+        # only one service pkl was present
+        all_pkls = [p for p in pkl_dir.glob("*.pkl") if p.suffix == ".pkl"]
+        combined_pkl = all_pkls[0]
+    trace_npz = out.with_suffix(".trace.npz")
+    run_trace_encoding(combined_pkl, trace_npz)
+    run_prepare_model(invo_path, trace_npz, out)
 
     write_sidecar(
         out,

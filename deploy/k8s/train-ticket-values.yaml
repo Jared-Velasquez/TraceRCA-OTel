@@ -1,0 +1,34 @@
+# Capstone single-node kind override for the OperationsPAI Train-Ticket chart.
+#
+# Why this exists: the chart's default per-service request is cpu:1/mem:1Gi
+# (top-level `resources:`), and ts-order-service requests cpu:2/mem:2Gi. With
+# ~45 services that demands ~45 CPU; a single-node kind cluster on a laptop has
+# 8. This is a functional pipeline test, not a Train-Ticket perf benchmark, so
+# we shrink requests to let the scheduler pack the fleet (CPU is overcommitted;
+# acceptable). Limits are kept modest to avoid one pod starving the node.
+#
+# Image tag: the architecture doc's pinned `637600ea` and the chart default
+# `latest` do NOT exist on docker.io/opspai (open question #6 — unverifiable at
+# doc time). OperationsPAI switched to semver; v1.2.9 (2026-05-01) is the latest
+# tag present for all 47 chart-referenced images (verified by manifest inspect).
+global:
+  image:
+    tag: v1.2.9
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+services:
+  tsOrderService:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi

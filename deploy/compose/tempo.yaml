@@ -32,8 +32,4 @@ query_frontend:
     duration_slo: 5s
     throughput_bytes_slo: 1.073741824e+09
 
-metrics_generator:
-  processors: []
-  storage: { path: /var/tempo/generator/wal }
-
 usage_report: { reporting_enabled: false }

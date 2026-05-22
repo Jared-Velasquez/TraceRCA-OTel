@@ -989,14 +989,23 @@ curl -s http://127.0.0.1:13133/ && echo OK
 # 5.2.5 Train-Ticket (OperationsPAI fork)
 git clone --depth 1 https://github.com/OperationsPAI/train-ticket.git /tmp/operationspai-tt
 cd /tmp/operationspai-tt && git rev-parse HEAD | tee /tmp/operationspai-tt.sha
+# loadgenerator is a remote chart dependency; its repo must be registered
+# before `helm dependency build` (rabbitmq resolves from its OCI ref).
+helm repo add loadgenerator https://operationspai.github.io/loadgenerator
+helm repo update loadgenerator
 helm dependency build manifests/helm/trainticket
+# Image tag, resource sizing, and the Bitnami insecure-image flag are pinned in
+# deploy/k8s/train-ticket-values.yaml (see that file for the why of each):
+#  - global.image.tag=v1.2.9  (637600ea / latest do NOT exist on docker.io/opspai)
+#  - shrunk resource requests so the ~46-svc fleet packs onto one 8-CPU node
 helm install ts manifests/helm/trainticket \
   --namespace ts --create-namespace \
+  -f <repo>/deploy/k8s/train-ticket-values.yaml \
   --set global.monitoring=opentelemetry \
   --set skywalking.enabled=false \
-  --set global.image.tag=637600ea \
   --set opentelemetry.enabled=true \
   --set otelCollector.enabled=false \
+  --set global.security.allowInsecureImages=true \
   --set global.otelcollector="http://otel-collector.observability.svc.cluster.local:4317" \
   --set services.tsUiDashboard.nodePort=30080
 cd -

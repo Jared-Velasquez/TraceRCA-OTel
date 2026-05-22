@@ -29,21 +29,31 @@ data:
       spanmetrics:
         histogram:
           explicit:
-            buckets: [1ms, 2ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s, 10s]
+            # 150ms added to give clean separation between the ts-travel closure's
+            # natural ~95ms p99 baseline and the ~195ms-ceiling that CPU stress can
+            # reach under the pod's 1-core limit. Without it, the only thresholds
+            # available in this range are 100ms (too tight) and 250ms (unreachable).
+            buckets: [1ms, 2ms, 5ms, 10ms, 25ms, 50ms, 100ms, 150ms, 250ms, 500ms, 1s, 2s, 5s, 10s]
           unit: ms
-        dimensions:
-          - { name: service.name }
-          - { name: span.kind }
-          - { name: status.code }
+        # service.name, span.name, span.kind, status.code are emitted by
+        # spanmetrics as default dimensions; listing them here is a duplicate.
         exemplars: { enabled: true }
         metrics_flush_interval: 15s
         aggregation_temporality: AGGREGATION_TEMPORALITY_CUMULATIVE
         namespace: traces.spanmetrics
 
     exporters:
-      # Linux fallback: run kind nodes with `--add-host host.docker.internal=host-gateway` (or compose `extra_hosts: ["host.docker.internal:host-gateway"]`).
+      # compose-tempo-1 runs on the host compose stack's `compose_default` network,
+      # which is isolated from the `kind` docker network. Host-published ports
+      # (0.0.0.0:4317) don't reach kind pods either (gateway 172.20.0.1 times out
+      # on Docker Desktop WSL2). The working pattern is to ATTACH compose-tempo-1
+      # to the kind network too:
+      #   docker network connect kind compose-tempo-1
+      # then export to its kind-network IP (here 172.20.0.3). The address is stable
+      # until compose-tempo-1 is recreated; re-find it with:
+      #   docker inspect compose-tempo-1 --format '{{.NetworkSettings.Networks.kind.IPAddress}}'
       otlp/tempo:
-        endpoint: host.docker.internal:4317   # Linux: replace with 172.17.0.1:4317
+        endpoint: 172.20.0.3:4317
         tls: { insecure: true }
         sending_queue: { enabled: true, queue_size: 1000 }
         retry_on_failure: { enabled: true }

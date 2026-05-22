@@ -1,0 +1,120 @@
+# Scoped overlay for the OperationsPAI trainticket chart — applied ON TOP OF
+# `train-ticket-values.yaml` to bring the fleet down to the ts-travel search
+# closure so it fits the ~19.5 GiB Docker Desktop VM ceiling and survives the
+# cold-start spike that has been crashing WSL.
+#
+# Apply order matters:
+#   helm upgrade --install ts manifests/helm/trainticket \
+#     -n ts --create-namespace \
+#     -f deploy/k8s/train-ticket-values.yaml \
+#     -f deploy/k8s/train-ticket-values-scoped.yaml \
+#     --set global.security.allowInsecureImages=true \
+#     --set global.otelcollector="http://otel-collector.observability.svc.cluster.local:4317" \
+#     --set otelCollector.enabled=false \
+#     --set skywalking.enabled=false \
+#     --set opentelemetry.enabled=true \
+#     --set services.tsUiDashboard.nodePort=30080
+#
+# What this overlay does, ranked by memory leverage:
+#   1. autoscaling.enabled=false  → HPA off. Without this, per-service `replicas`
+#      is ignored by the chart's deployment template (`{{- if not .autoscaling.enabled }}`).
+#      Also stops the chart's default maxReplicas=3 / targetMemoryUtilization=200
+#      from silently tripling every service under any memory pressure.
+#   2. Per-service `replicas: 0` on the 34 out-of-closure ts-* services. Closure
+#      stays at 1.
+#   3. loadgenerator.enabled=false  → don't drive traffic until the closure is
+#      verified healthy. Re-enable in a second `helm upgrade` for the demo.
+#
+# What this overlay does NOT do (intentional limitations):
+#   - JVM heap cap: the chart hardcodes `-Xmx2048m` in deployment.yaml's
+#     JAVA_TOOL_OPTIONS env and exposes no values knob for it. Heap caps must be
+#     applied post-deploy via `scripts/scoped-bringup.sh cap-heap`. CAVEAT:
+#     `helm upgrade` will revert that env back to -Xmx2048m; re-run the script
+#     after every upgrade. The proper long-term fix is forking the chart to
+#     parameterise heap, deferred until after the demo lands.
+#   - replicas:0 is silently ignored by the chart. The template uses
+#     `replicas: {{ $svc.replicas | default 1 }}` and Go templates' `default`
+#     treats `0` as unset, so the out-of-closure replicas:0 below get rewritten
+#     to 1 at render time. Verified empirically (helm upgrade revision 2 brought
+#     all 45 deployments back to replicas=1). The block is left as documentation
+#     of intent; the actual scale-down must be done post-upgrade via
+#     `scripts/scoped-bringup.sh scale-down`. The autoscaling.enabled=false above
+#     IS honoured (HPAs deleted on upgrade) — only the per-svc replicas:0 is broken.
+#   - Chaos Mesh trimming (controller replicas, dashboard, dns-server): that's a
+#     separate Helm release; trimmed by `scripts/scoped-bringup.sh trim-chaos`.
+#   - MySQL InnoDB buffer pool sizing: chart's mysql.yaml doesn't parameterise
+#     it; one shared mysql at default sizing is small enough vs the JVM pile to
+#     defer until measured.
+
+# 1. HPA off — the single largest hidden memory multiplier in the default chart.
+autoscaling:
+  enabled: false
+
+# 2. Loadgenerator off for the initial controlled bring-up. Re-enable explicitly
+#    via `--set loadgenerator.enabled=true` once the closure is healthy.
+loadgenerator:
+  enabled: false
+
+# 3. Per-service replicas. Closure = the dependency closure of the ts-travel
+#    search flow (POST /api/v1/travelservice/trips/left), verified against the
+#    FudanSELab call graph and reconciled with the OpsPAI fork's deployed set
+#    (ts-ticketinfo is absent from this fork; ts-travel calls ts-basic directly).
+#
+#    CLOSURE (11 services, replicas=1):
+#      ts-travel-service, ts-ui-dashboard,
+#      ts-basic, ts-route, ts-train, ts-station, ts-price, ts-config,
+#      ts-seat, ts-order, ts-order-other
+#
+#    OUT-OF-CLOSURE (34 services, replicas=0):
+#      everything else in the chart's `services:` map.
+services:
+  # ---------- KEEP (closure) ----------
+  # ts-travel search fan-out
+  tsTravelService:        { replicas: 1 }
+  tsUiDashboard:          { replicas: 1 }
+  tsBasicService:         { replicas: 1 }
+  tsRouteService:         { replicas: 1 }
+  tsTrainService:         { replicas: 1 }
+  tsStationService:       { replicas: 1 }
+  tsPriceService:         { replicas: 1 }
+  tsConfigService:        { replicas: 1 }
+  tsSeatService:          { replicas: 1 }
+  tsOrderService:         { replicas: 1 }
+  tsOrderOtherService:    { replicas: 1 }
+  # auth-flow (loadgenerator unblockers + direct SLO targets)
+  tsAuthService:          { replicas: 1 }
+  tsUserService:          { replicas: 1 }
+  tsVerificationCodeService: { replicas: 1 }
+  tsSecurityService:      { replicas: 1 }
+
+  # ---------- DROP (out of closure) ----------
+  tsAdminBasicInfoService:    { replicas: 0 }
+  tsAdminOrderService:        { replicas: 0 }
+  tsAdminRouteService:        { replicas: 0 }
+  tsAdminTravelService:       { replicas: 0 }
+  tsAdminUserService:         { replicas: 0 }
+  tsAssuranceService:         { replicas: 0 }
+  tsAvatarService:            { replicas: 0 }
+  tsCancelService:            { replicas: 0 }
+  tsConsignPriceService:      { replicas: 0 }
+  tsConsignService:           { replicas: 0 }
+  tsContactsService:          { replicas: 0 }
+  tsDeliveryService:          { replicas: 0 }
+  tsExecuteService:           { replicas: 0 }
+  tsFoodDeliveryService:      { replicas: 0 }
+  tsFoodService:              { replicas: 0 }
+  tsInsidePaymentService:     { replicas: 0 }
+  tsNewsService:              { replicas: 0 }
+  tsNotificationService:      { replicas: 0 }
+  tsPaymentService:           { replicas: 0 }
+  tsPreserveOtherService:     { replicas: 0 }
+  tsPreserveService:          { replicas: 0 }
+  tsRebookService:            { replicas: 0 }
+  tsRoutePlanService:         { replicas: 0 }
+  tsStationFoodService:       { replicas: 0 }
+  tsTicketOfficeService:      { replicas: 0 }
+  tsTrainFoodService:         { replicas: 0 }
+  tsTravel2Service:           { replicas: 0 }
+  tsTravelPlanService:        { replicas: 0 }
+  tsVoucherService:           { replicas: 0 }
+  tsWaitOrderService:         { replicas: 0 }

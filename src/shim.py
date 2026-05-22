@@ -33,4 +33,7 @@ class Handler(BaseHTTPRequestHandler):
                 }) + "\n")
 
 if __name__ == "__main__":
-    HTTPServer(("127.0.0.1", 8080), Handler).serve_forever()
+    # Bind 0.0.0.0 not 127.0.0.1 — Alertmanager runs in the compose container and
+    # reaches the host via Docker Desktop's `host.docker.internal`, which routes
+    # to the host's IP. Loopback-only would be unreachable from there.
+    HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()

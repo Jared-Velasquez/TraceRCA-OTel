@@ -134,8 +134,13 @@ def convert_traces_to_pkl(
 
 # Step 6
 def run_invo_encoding(pkl_dir: Path, invo_path: Path) -> None:
+    """Vendor's run_invo_encoding.py `-i` expects a single .pkl file (the
+    `default="*.pkl"` is misleading — script does `open(input_file)`).
+    Inference writes its raw pkl as `pkl_dir/trace.pkl`; pass that directly.
+    """
     script = VENDOR_DIR / "run_invo_encoding.py"
-    cmd = [sys.executable, str(script), "-i", str(pkl_dir), "-o", str(invo_path)]
+    input_pkl = pkl_dir / "trace.pkl" if pkl_dir.is_dir() else pkl_dir
+    cmd = [sys.executable, str(script), "-i", str(input_pkl), "-o", str(invo_path)]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise SubprocessError(f"run_invo_encoding.py failed: {result.stderr}")
@@ -169,15 +174,18 @@ def run_localization(
     *,
     min_support_rate: float = 0.1,
     k: int = 100,
+    caller_discount_alpha: float = 0.0,
 ) -> tuple[str, list[str]]:
     """Returns (stdout, ranked_list)."""
     script = VENDOR_DIR / "run_localization_association_rule_mining_20210516.py"
+    # Vendor's flags are `-i` / `-o` (not `--injected-file` / `--output-file`).
     cmd = [
         sys.executable, str(script),
-        "--injected-file", str(predicted_path),
-        "--output-file", str(out_pkl),
+        "-i", str(predicted_path),
+        "-o", str(out_pkl),
         "--min-support-rate", str(min_support_rate),
         "--k", str(k),
+        "--caller-discount-alpha", str(caller_discount_alpha),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -292,13 +300,23 @@ def main(
             run_invo_encoding(pkl_dir, invo_path)
 
             useful_features = tmp_path / "useful_features.txt"
-            useful_features.write_text("latency\nhttp_status\n")
+            # Vendor's run_anomaly_detection_invo.py reads this with
+            # eval("".join(f.readlines())) — needs a Python list literal,
+            # not newline-separated names.
+            useful_features.write_text("['latency', 'http_status']\n")
 
             predicted_path = tmp_path / "invo.predicted.pkl"
             run_anomaly_detection_invo(invo_path, predicted_path, model_path, useful_features)
 
+            loc_hp = (_meta.get("hyperparams") or {}).get("localization") or {}
             loc_out = tmp_path / "localization.pkl"
-            _stdout, ranked = run_localization(predicted_path, loc_out)
+            _stdout, ranked = run_localization(
+                predicted_path,
+                loc_out,
+                min_support_rate=loc_hp.get("min_support_rate", 0.1),
+                k=loc_hp.get("k", 100),
+                caller_discount_alpha=loc_hp.get("caller_discount_alpha", 0.0),
+            )
     except SubprocessError as e:
         click.echo(str(e), err=True)
         sys.exit(EXIT_SUBPROCESS_FAIL)
